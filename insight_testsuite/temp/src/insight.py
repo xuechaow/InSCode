@@ -46,15 +46,38 @@ def i_load_data(input_path):
 	fp.close()
 	return tweet_node_list
 
-# function name: update_connection
-# Parameter: list of source, list of destination, key name for list of destination
-# Return: updated list in a dictionary
-def i_update_connect(list_source,list_destination,str_key):
+# function name: create_connect
+# Parameter: list of source, dict of destination, key name for dict of destination
+# Return: updated dict in a dictionary
+def i_create_connect(list_source,dict_destination,str_key):
 	for hashtags in list_source:
-		if not(hashtags in list_destination or hashtags == str_key):
-			list_destination.append(hashtags)
+		if not(hashtags in dict_destination or hashtags == str_key):
+			dict_destination[hashtags] = 1
 
-	return list_destination
+	return dict_destination
+
+# function name: update_connect
+# Parameter: list of source, dict of destination, key name for dict of destination
+# Return: updated dict in a dictionary
+def i_update_connect(list_source,dict_destination,str_key):
+	for hashtags in list_source:
+		if not (hashtags == str_key):
+			if not(hashtags in dict_destination):
+				dict_destination[hashtags] =1
+			else:
+				dict_destination[hashtags] +=1
+	return dict_destination
+
+# function name: delete_connect
+# Parameter: list of source, dict of destination, key name for dict of destination
+# Return: deleted dict in a dictionary
+def i_delete_connect(list_source,dict_destination,str_key):
+	for hashtags in list_source:
+		if not(hashtags == str_key):
+			dict_destination[hashtags] -=1
+			if(dict_destination[hashtags]==0):
+				del dict_destination[hashtags]
+	return dict_destination
 
 # function name: 2_digit
 # Parameter: the float or int ready to be truncate without rounding up
@@ -76,24 +99,28 @@ class Data_window:
 	__max_timestamp = 0
 	__data_heap = []
 	__hashtags_graph = {}
+	__tuple_deleted = [] # need clear to [] after graph updated
+	__tuple_inserted = [] # need clear to [] after graph updated
 
 	def update_heap(self,data_item):
 	# data_item is {'hashtags':[],'created_at':}
 		# updated the max timestamp processed
+		tmp_tuple = (data_item['created_at'],data_item['hashtags'])
 		if(data_item['created_at'] > self.__max_timestamp):
 			self.__max_timestamp = data_item['created_at']
-			heapq.heappush(self.__data_heap,(data_item['created_at'],data_item['hashtags']))
+			heapq.heappush(self.__data_heap,tmp_tuple)
+			self.__tuple_inserted.append(tmp_tuple)
 			while (self.__data_heap[0][0] < self.__max_timestamp-59):
-				heapq.heappop(self.__data_heap)
+				self.__tuple_deleted.append(heapq.heappop(self.__data_heap))
 		else:
 			if(data_item['created_at'] < self.__max_timestamp-59):
 				return self.__data_heap
 			else:
-				heapq.heappush(self.__data_heap,(data_item['created_at'],data_item['hashtags']))
+				heapq.heappush(self.__data_heap,tmp_tuple)
+				self.__tuple_inserted.append(tmp_tuple)
 
 	def update_graph(self):
-		self.__hashtags_graph = {}
-		for item_tuple in self.__data_heap:
+		for item_tuple in self.__tuple_inserted:
 			if not (len(item_tuple[1]) < 2):
 				for tags in item_tuple[1]: # item_tuple[1] is the hashtags list of strings
 					if (tags in self.__hashtags_graph):
@@ -101,8 +128,16 @@ class Data_window:
 						# append the tags into the key as value
 					else: 
 						#create new dict entry
-						self.__hashtags_graph[tags] = []
-						self.__hashtags_graph[tags] = i_update_connect(item_tuple[1],self.__hashtags_graph[tags],tags)
+						self.__hashtags_graph[tags] = {}
+						self.__hashtags_graph[tags] = i_create_connect(item_tuple[1],self.__hashtags_graph[tags],tags)
+		for item_tuple in self.__tuple_deleted:
+			for tags in item_tuple[1]:
+				if (tags in self.__hashtags_graph):
+					self.__hashtags_graph[tags] = i_delete_connect(item_tuple[1],self.__hashtags_graph[tags],tags)
+					if(len(self.__hashtags_graph[tags]) == 0):
+						del self.__hashtags_graph[tags]
+		self.__tuple_inserted = []
+		self.__tuple_deleted = []
 
 	def calculate_average_degree(self):
 		key_sum = 0
