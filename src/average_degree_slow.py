@@ -20,7 +20,7 @@ for item in data_list:
 
 output_fp.close()
 
-print("Running time: %s seconds" % (time.time()-start_time))
+print("Running time(slow method): %.6s seconds" % (time.time()-start_time))
 	
 
 

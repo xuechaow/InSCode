@@ -28,6 +28,7 @@ def i_load_data(input_path):
 		try:
 			input_json_item = json.loads(item)
 			input_json_list.append(input_json_item)
+		# When the data file ends with the delimiter, split() function would return a "" which is un-jsonable causing the exception
 		except ValueError:
 			print("[From Applicant:Xuechao]Format Wrong or End of File, but will continue with loaded data")
 
@@ -39,6 +40,7 @@ def i_load_data(input_path):
 			tweet_node['created_at'] = i_utc2utime(item['created_at'])
 			tweet_node['hashtags'] = []
 			for tag in item['entities']['hashtags']:
+				# de-deduplicate the tags. Every tag in the hashtag list is unique
 				if not (tag['text'] in tweet_node['hashtags']):
 					tweet_node['hashtags'].append(tag['text'])
 			tweet_node_list.append(tweet_node)
@@ -49,16 +51,19 @@ def i_load_data(input_path):
 
 # function name: create_connect
 # Parameter: list of source, dict of destination, key name for dict of destination
+# Implementation: Traverse the list_source, for tags not equal to the dict'key(str_key parameter), 
 # Return: updated dict in a dictionary
 def i_create_connect(list_source,dict_destination,str_key):
 	for hashtags in list_source:
-		if not(hashtags in dict_destination or hashtags == str_key):
+		if not(hashtags in dict_destination or hashtags == str_key): # optional: de-dup(hashtags in dict_dest)
 			dict_destination[hashtags] = 1
 
 	return dict_destination
 
 # function name: update_connect
 # Parameter: list of source, dict of destination, key name for dict of destination
+# Implementation: Traverse the list_source, for tags not equal to the dict'key(str_key parameter), initialize with 1 for 
+# new tag connection, add with 1 for existed connection.
 # Return: updated dict in a dictionary
 def i_update_connect(list_source,dict_destination,str_key):
 	for hashtags in list_source:
@@ -71,7 +76,9 @@ def i_update_connect(list_source,dict_destination,str_key):
 
 # function name: delete_connect
 # Parameter: list of source, dict of destination, key name for dict of destination
-# Return: deleted dict in a dictionary
+# Implementation: Traverse the list_source, for tags not equal to the dict'key(str_key parameter), subtract the connection count with
+# 1, if the count equals to 0, delete this connection
+# Return: updated with a deleted dict in a graph, delete source is the list_source
 def i_delete_connect(list_source,dict_destination,str_key):
 	for hashtags in list_source:
 		if not(hashtags == str_key):
@@ -103,6 +110,14 @@ class Data_window:
 	__tuple_deleted = [] # need clear to [] after graph updated
 	__tuple_inserted = [] # need clear to [] after graph updated
 
+	# function name: updata_heap
+	# Parameter: data_item, as a dict {time,taglist}
+	# Implementation: if the new tweet's timestamp is greater than the max stamp, update the heap by
+	#					- pushing the new tweet (also add to the inserted_list attribute of the class)
+	#					- popping the tweets falling out of the new window (also add to the deleted_list attribute of the class)
+	#				  if the new timestamp is within the window, add the tweet to inserted list
+	#				  if the stamp is out of the window, ignore it
+	# Return: none or the heap w/o update
 	def update_heap(self,data_item):
 	# data_item is {'hashtags':[],'created_at':}
 		# updated the max timestamp processed
@@ -120,26 +135,43 @@ class Data_window:
 				heapq.heappush(self.__data_heap,tmp_tuple)
 				self.__tuple_inserted.append(tmp_tuple)
 
+	# function name: updata_graph
+	# Parameter: none
+	# Implementation: From the heap updating, we obtain the inserted data tuple (one new tweet), and the deleted tuples.
+	# 				  the second item of the tuple is the list for hashtags. To maintain the graph(ignore the single-hashtag list), traverse the new hashtag
+	#				  list, update the entry with that tag if the tag exists in the graph dictionary. Create the entry if not.
+	#				  For deleting, for each tag in the tag list, decrease the reference count(the value for other tags as key in the dictionary for the selected tag) 
+	#                 of that connection by 1
+	# Return: none
 	def update_graph(self):
-		for item_tuple in self.__tuple_inserted:
+		# insertion-update 
+		for item_tuple in self.__tuple_inserted: # item_tuple is the item inserted, or the hashtags list
 			if not (len(item_tuple[1]) < 2):
-				for tags in item_tuple[1]: # item_tuple[1] is the hashtags list of strings
+				for tags in item_tuple[1]: 
+				# item_tuple[1] is the hashtags list of strings, 'tags' is a hashtag. Update the graph with the tags in the
+				# inserted list. if the tag is a key of the graph_dict, use update_connection function. if not, use 
+				# create_connection function
 					if (tags in self.__hashtags_graph):
 						self.__hashtags_graph[tags] = i_update_connect(item_tuple[1],self.__hashtags_graph[tags],tags)
-						# append the tags into the key as value
 					else: 
 						#create new dict entry
 						self.__hashtags_graph[tags] = {}
 						self.__hashtags_graph[tags] = i_create_connect(item_tuple[1],self.__hashtags_graph[tags],tags)
+		# delete-update
 		for item_tuple in self.__tuple_deleted:
+			
 			for tags in item_tuple[1]:
+			# use the list source(item_tuple[1]) to delete connections. item_tuple[1] contains the connections we need to delete
+			# when a node has no connections, delete it
 				if (tags in self.__hashtags_graph):
 					self.__hashtags_graph[tags] = i_delete_connect(item_tuple[1],self.__hashtags_graph[tags],tags)
 					if(len(self.__hashtags_graph[tags]) == 0):
 						del self.__hashtags_graph[tags]
+		# clear the buffer for update, otherwise would cause data leaking
 		self.__tuple_inserted = []
 		self.__tuple_deleted = []
 
+	# Implementation: count the keys, sum up the degrees, and divide
 	def calculate_average_degree(self):
 		key_sum = 0
 		degree_sum = 0
@@ -150,10 +182,10 @@ class Data_window:
 			return 0
 		else:
 			return degree_sum/key_sum
-
+	# Return a private data
 	def get_data_heap(self):
 		return self.__data_heap
-
+	# Return a private data
 	def get_hashtags_graph(self):
 		return self.__hashtags_graph
 
